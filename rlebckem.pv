@@ -1,0 +1,310 @@
+(* ProVerif Code for RL-SEBCKEM Security Analysis *)
+
+(* Type declarations *)
+type device.
+type capability.
+type threat_level.
+type sebc_params.
+type polynomial.
+type ntt_output.
+type cses_data.
+type ced_status.
+type shared_key.
+type timestamp.
+type nonce.
+type keypair.
+
+(* Channel declarations *)
+channel ch.
+
+(* Type conversion functions *)
+fun params_to_bitstring(sebc_params): bitstring [data,typeConverter].
+fun poly_to_bitstring(polynomial): bitstring [data,typeConverter].
+fun ts_to_bitstring(timestamp): bitstring [data,typeConverter].
+fun nonce_to_bitstring(nonce): bitstring [data,typeConverter].
+fun cses_to_bitstring(cses_data): bitstring [data,typeConverter].
+fun device_to_bitstring(device): bitstring [data,typeConverter].
+fun capability_to_bitstring(capability): bitstring [data,typeConverter].
+fun threat_to_bitstring(threat_level): bitstring [data,typeConverter].
+
+fun bitstring_to_params(bitstring): sebc_params [data,typeConverter].
+fun bitstring_to_poly(bitstring): polynomial [data,typeConverter].
+fun bitstring_to_ts(bitstring): timestamp [data,typeConverter].
+fun bitstring_to_nonce(bitstring): nonce [data,typeConverter].
+fun bitstring_to_cses(bitstring): cses_data [data,typeConverter].
+
+(* Cryptographic primitives *)
+
+(* Symmetric encryption *)
+fun senc(bitstring, shared_key): bitstring.
+reduc forall m: bitstring, k: shared_key; sdec(senc(m, k), k) = m.
+
+(* Asymmetric encryption *)
+fun aenc(bitstring, bitstring): bitstring.
+fun pk(bitstring): bitstring.
+reduc forall m: bitstring, sk: bitstring; adec(aenc(m, pk(sk)), sk) = m.
+
+(* Hash function *)
+fun hash(bitstring): bitstring.
+
+(* Digital signature *)
+fun sign(bitstring, bitstring): bitstring.
+reduc forall m: bitstring, sk: bitstring; checksign(sign(m, sk), pk(sk)) = m.
+
+(* SEBC function *)
+fun sebc(capability, threat_level): sebc_params.
+
+(* Enhanced Number Theoretic Transform *)
+fun enhanced_ntt(polynomial, sebc_params): ntt_output.
+fun inverse_ntt(ntt_output, sebc_params): polynomial.
+
+(* Compact Sparse Encoding Scheme *)
+fun cses_encode(polynomial): cses_data.
+fun cses_decode(cses_data): polynomial.
+
+(* Concurrent Error Detection *)
+fun ced_check(bitstring): ced_status.
+const ced_secure: ced_status.
+const ced_fault: ced_status.
+
+(* RLWE operations *)
+fun rlwe_keygen(sebc_params): keypair.
+fun get_secret(keypair): polynomial.
+fun get_public(keypair): polynomial.
+fun rlwe_enc(polynomial, polynomial, sebc_params): keypair.
+fun get_cipher(keypair): polynomial.
+fun get_error(keypair): polynomial.
+
+(* Key derivation function *)
+fun kdf(polynomial, polynomial, timestamp): shared_key.
+
+(* Tuple constructors *)
+fun pair(bitstring, bitstring): bitstring.
+fun triple(bitstring, bitstring, bitstring): bitstring.
+fun quad(bitstring, bitstring, bitstring, bitstring): bitstring.
+
+(* Tuple destructors *)
+reduc forall x: bitstring, y: bitstring; fst(pair(x, y)) = x.
+reduc forall x: bitstring, y: bitstring; snd(pair(x, y)) = y.
+
+reduc forall x: bitstring, y: bitstring, z: bitstring; 
+    fst_triple(triple(x, y, z)) = x.
+reduc forall x: bitstring, y: bitstring, z: bitstring; 
+    snd_triple(triple(x, y, z)) = y.
+reduc forall x: bitstring, y: bitstring, z: bitstring; 
+    thd_triple(triple(x, y, z)) = z.
+
+reduc forall w: bitstring, x: bitstring, y: bitstring, z: bitstring; 
+    fst_quad(quad(w, x, y, z)) = w.
+reduc forall w: bitstring, x: bitstring, y: bitstring, z: bitstring; 
+    snd_quad(quad(w, x, y, z)) = x.
+reduc forall w: bitstring, x: bitstring, y: bitstring, z: bitstring; 
+    thd_quad(quad(w, x, y, z)) = y.
+reduc forall w: bitstring, x: bitstring, y: bitstring, z: bitstring; 
+    fth_quad(quad(w, x, y, z)) = z.
+
+(* Security events *)
+event DeviceAuthenticated(device, device, shared_key).
+event KeyEstablished(device, device, shared_key).
+event ParameterNegotiated(device, device, sebc_params).
+event FaultDetected(device, ced_status).
+event SEBCExecuted(device, capability, threat_level, sebc_params).
+event NTTComputed(device, polynomial, ntt_output).
+event CSESEncoded(device, polynomial, cses_data).
+event SecureKeyExchange(device, device, shared_key).
+
+(* Security queries *)
+query attacker(new k_shared).
+
+query k: shared_key, n1: device, n2: device;
+    event(KeyEstablished(n2, n1, k)) ==> event(KeyEstablished(n1, n2, k)).
+
+query k1: shared_key, k2: shared_key, n1: device, n2: device;
+    event(KeyEstablished(n1, n2, k1)) && event(KeyEstablished(n2, n1, k2)) ==> k1 = k2.
+
+query k: shared_key, n1: device, n2: device;
+    inj-event(KeyEstablished(n2, n1, k)) ==> inj-event(KeyEstablished(n1, n2, k)).
+
+query params: sebc_params, n1: device, n2: device;
+    event(ParameterNegotiated(n2, n1, params)) ==> event(ParameterNegotiated(n1, n2, params)).
+
+(* IoT Device N1 Process *)
+let device_N1(n1: device, n2: device, sk_n1: bitstring, pk_n2: bitstring, 
+              cd_n1: capability, te_current: threat_level) =
+    
+    (* Step 1: SEBC Parameter Optimization *)
+    let params_n1 = sebc(cd_n1, te_current) in
+    event SEBCExecuted(n1, cd_n1, te_current, params_n1);
+    
+    (* Step 2: Generate RLWE key pair *)
+    let kp = rlwe_keygen(params_n1) in
+    let secret_poly = get_secret(kp) in
+    let public_poly = get_public(kp) in
+    
+    (* Step 3: Enhanced NTT computation *)
+    let ntt_result = enhanced_ntt(secret_poly, params_n1) in
+    event NTTComputed(n1, secret_poly, ntt_result);
+    
+    (* Step 4: Create timestamp and nonce *)
+    new ts1: timestamp;
+    new nonce1: nonce;
+    
+    (* Step 5: Initial message to N2 - convert types to bitstring *)
+    let msg1 = quad(params_to_bitstring(params_n1), 
+                   poly_to_bitstring(public_poly), 
+                   ts_to_bitstring(ts1), 
+                   nonce_to_bitstring(nonce1)) in
+    let signed_msg1 = sign(msg1, sk_n1) in
+    out(ch, pair(msg1, signed_msg1));
+    
+    (* Step 6: Receive response from N2 *)
+    in(ch, response_msg: bitstring);
+    let response = fst(response_msg) in
+    let sig_response = snd(response_msg) in
+    
+    (* Step 7: Verify signature *)
+    if checksign(sig_response, pk_n2) = response then
+    
+    (* Extract parameters from response *)
+    let params_recv_bits = fst_quad(response) in
+    let params_recv = bitstring_to_params(params_recv_bits) in
+    
+    if params_recv = params_n1 then
+    event ParameterNegotiated(n1, n2, params_n1);
+    
+    (* Step 8: RLWE encapsulation *)
+    let enc_kp = rlwe_enc(public_poly, secret_poly, params_n1) in
+    let cipher_poly = get_cipher(enc_kp) in
+    let error_poly = get_error(enc_kp) in
+    
+    (* Step 9: CSES compression *)
+    let compressed_cipher = cses_encode(cipher_poly) in
+    event CSESEncoded(n1, cipher_poly, compressed_cipher);
+    
+    (* Step 10: CED verification *)
+    let ced_status = ced_check(cses_to_bitstring(compressed_cipher)) in
+    if ced_status = ced_secure then
+    
+    (* Step 11: Derive shared key *)
+    let shared_key = kdf(secret_poly, error_poly, ts1) in
+    
+    (* Step 12: Send encapsulated key *)
+    let final_msg = senc(pair(cses_to_bitstring(compressed_cipher), 
+                             nonce_to_bitstring(nonce1)), shared_key) in
+    out(ch, final_msg);
+    
+    (* Step 13: Authentication events *)
+    event KeyEstablished(n1, n2, shared_key);
+    event DeviceAuthenticated(n1, n2, shared_key);
+    event SecureKeyExchange(n1, n2, shared_key);
+    0.
+
+(* IoT Device N2 Process *)
+let device_N2(n1: device, n2: device, sk_n2: bitstring, pk_n1: bitstring,
+              cd_n2: capability, te_current: threat_level) =
+    
+    (* Step 1: Receive initial message from N1 *)
+    in(ch, msg_pair: bitstring);
+    let msg1 = fst(msg_pair) in
+    let sig1 = snd(msg_pair) in
+    
+    (* Step 2: Verify signature *)
+    if checksign(sig1, pk_n1) = msg1 then
+    
+    (* Extract received parameters *)
+    let params_recv_bits = fst_quad(msg1) in
+    let pub_poly_bits = snd_quad(msg1) in
+    let ts1_bits = thd_quad(msg1) in
+    let nonce1_bits = fth_quad(msg1) in
+    
+    let params_recv = bitstring_to_params(params_recv_bits) in
+    let pub_poly_recv = bitstring_to_poly(pub_poly_bits) in
+    let ts1_recv = bitstring_to_ts(ts1_bits) in
+    let nonce1_recv = bitstring_to_nonce(nonce1_bits) in
+    
+    (* Step 3: SEBC parameter computation *)
+    let params_n2 = sebc(cd_n2, te_current) in
+    event SEBCExecuted(n2, cd_n2, te_current, params_n2);
+    
+    if params_recv = params_n2 then
+    event ParameterNegotiated(n2, n1, params_n2);
+    
+    (* Step 4: Generate own RLWE components *)
+    let kp2 = rlwe_keygen(params_n2) in
+    let secret_poly_n2 = get_secret(kp2) in
+    let public_poly_n2 = get_public(kp2) in
+    
+    (* Step 5: Enhanced NTT computation *)
+    let ntt_result_n2 = enhanced_ntt(secret_poly_n2, params_n2) in
+    event NTTComputed(n2, secret_poly_n2, ntt_result_n2);
+    
+    (* Step 6: Create response *)
+    new ts2: timestamp;
+    new nonce2: nonce;
+    let response = quad(params_to_bitstring(params_n2), 
+                       poly_to_bitstring(public_poly_n2), 
+                       ts_to_bitstring(ts2), 
+                       nonce_to_bitstring(nonce2)) in
+    let signed_response = sign(response, sk_n2) in
+    out(ch, pair(response, signed_response));
+    
+    (* Step 7: Receive encapsulated key *)
+    in(ch, enc_final: bitstring);
+    
+    (* Step 8: Derive shared key *)
+    let derived_key = kdf(secret_poly_n2, pub_poly_recv, ts1_recv) in
+    
+    (* Step 9: Decrypt and verify *)
+    let decrypted_data = sdec(enc_final, derived_key) in
+    let compressed_data_bits = fst(decrypted_data) in
+    let received_nonce_bits = snd(decrypted_data) in
+    
+    let compressed_data = bitstring_to_cses(compressed_data_bits) in
+    let received_nonce = bitstring_to_nonce(received_nonce_bits) in
+    
+    if received_nonce = nonce1_recv then
+    
+    (* Step 10: CSES decompression *)
+    let recovered_poly = cses_decode(compressed_data) in
+    event CSESEncoded(n2, recovered_poly, compressed_data);
+    
+    (* Step 11: CED verification *)
+    let ced_verification = ced_check(compressed_data_bits) in
+    event FaultDetected(n2, ced_verification);
+    
+    (* Step 12: Final key establishment *)
+    event KeyEstablished(n2, n1, derived_key);
+    event DeviceAuthenticated(n2, n1, derived_key);
+    event SecureKeyExchange(n2, n1, derived_key);
+    0.
+
+(* Main process *)
+process
+    (* Initialize devices *)
+    new n1: device;
+    new n2: device;
+    
+    (* Generate key pairs for devices *)
+    new sk1: bitstring;
+    new sk2: bitstring;
+    let pk1 = pk(sk1) in
+    let pk2 = pk(sk2) in
+    
+    (* Device capabilities and threat levels *)
+    new cd1: capability;
+    new cd2: capability;
+    new te: threat_level;
+    
+    (* Shared key for verification *)
+    new k_shared: shared_key;
+    
+    (* Run parallel processes *)
+    (
+        (* Main protocol execution *)
+        device_N1(n1, n2, sk1, pk2, cd1, te) |
+        device_N2(n1, n2, sk2, pk1, cd2, te) |
+        
+        (* Public key distribution *)
+        out(ch, pk1) |
+        out(ch, pk2)
+    )
